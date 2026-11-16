@@ -1,0 +1,4 @@
+# The words of a language that typos reads as misspellings go in
+# [default.extend-words], and generated files in [files] extend-exclude.
+[files]
+extend-exclude = [".tests/"]

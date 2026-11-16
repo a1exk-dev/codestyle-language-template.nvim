@@ -1,0 +1,21 @@
+*codestyle-tsquery.txt*  Tree-sitter query formatting for codestyle.nvim
+
+==============================================================================
+CONTENTS                                              *codestyle-tsquery*
+
+This Language Plugin adds Tree-sitter query to codestyle.nvim: its Options in
+the Menu, the PhpStorm fields that a Scheme XML import reads, and the
+formatting of `query` buffers.
+
+Install, set up and use it as the Core says in |codestyle|.
+
+Language id: `tsquery`
+Filetypes:   `query`
+Parsers:     `query`, bundled with Neovim
+
+Options ~
+`spaces.after_colon`   boolean, default `true`
+                       One space after the `:` of a field, as in
+                       `name: (identifier)`.
+
+ vim:tw=78:ts=8:ft=help:norl:
