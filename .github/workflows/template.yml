@@ -1,0 +1,185 @@
+name: Template
+
+# The self-check of the template (home ADR-0003). It runs
+# `scripts/init.lua` on a throwaway copy with a sample id and Name, checks
+# that the copy keeps no template-only file and no text of the template's
+# own plugin, and that each boilerplate file is byte-identical, then runs
+# every check of `ci.yml` and `spelling.yml` on the copy. It runs only in
+# the template repo, and `init.lua` deletes this file. It has no `paths:`
+# filter: a required check that a pull request skips stays pending.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+
+jobs:
+  self-check:
+    name: Template self-check
+    if: github.event.repository.name == 'codestyle-language-template.nvim'
+    runs-on: ubuntu-latest
+    env:
+      SAMPLE_ID: sample_lang
+      SAMPLE_NAME: Sample language
+      SAMPLE_OWNER: sample-owner
+      SAMPLE_AUTHOR: Sample Author
+      LUALS_VERSION: 3.19.2
+      STYLUA_VERSION: 2.6.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: nvim-0-11
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          neovim: true
+          version: v0.11.7
+
+      - id: nvim-stable
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Make the throwaway copy
+        env:
+          NVIM_0_11: ${{ steps.nvim-0-11.outputs.executable }}
+          NVIM_STABLE: ${{ steps.nvim-stable.outputs.executable }}
+        run: |
+          copy="$RUNNER_TEMP/codestyle-$SAMPLE_ID.nvim"
+          rm -rf "$copy"
+          cp -a . "$copy"
+          git -C "$copy" remote set-url origin "https://github.com/$SAMPLE_OWNER/codestyle-$SAMPLE_ID.nvim.git"
+          git -C "$copy" config user.name "$SAMPLE_AUTHOR"
+          {
+            echo "TEMPLATE=$PWD"
+            echo "COPY=$copy"
+            echo "NVIM_0_11=$NVIM_0_11"
+            echo "NVIM_STABLE=$NVIM_STABLE"
+          } >> "$GITHUB_ENV"
+
+      - name: Check that init.lua refuses bad input and changes nothing
+        working-directory: ${{ env.COPY }}
+        run: |
+          snapshot() {
+            find . -path ./.git -prune -o -path ./.tests -prune -o -type f -print0 | sort -z | xargs -0 sha256sum
+            git rev-parse HEAD
+          }
+          before="$(snapshot)"
+          refuse() {
+            if "$NVIM_STABLE" -l scripts/init.lua "$@"; then
+              echo "::error::init.lua accepted: $*"
+              exit 1
+            fi
+            if [[ "$(snapshot)" != "$before" ]]; then
+              echo "::error::init.lua changed files when it refused: $*"
+              exit 1
+            fi
+          }
+          refuse
+          refuse "$SAMPLE_ID"
+          refuse "$SAMPLE_ID" ''
+          refuse 1lang "$SAMPLE_NAME"
+          refuse Sample_lang "$SAMPLE_NAME"
+          refuse sample-lang "$SAMPLE_NAME"
+          refuse other "$SAMPLE_NAME"
+          git remote set-url origin "https://gitlab.com/$SAMPLE_OWNER/codestyle-$SAMPLE_ID.nvim.git"
+          refuse "$SAMPLE_ID" "$SAMPLE_NAME"
+          git remote set-url origin "https://github.com/$SAMPLE_OWNER/codestyle-$SAMPLE_ID.nvim.git"
+
+      - name: Run init.lua
+        working-directory: ${{ env.COPY }}
+        run: '"$NVIM_STABLE" -l scripts/init.lua "$SAMPLE_ID" "$SAMPLE_NAME"'
+
+      - name: Check the result of init.lua
+        working-directory: ${{ env.COPY }}
+        run: |
+          status=0
+          error() {
+            echo "::error::$1"
+            status=1
+          }
+          for path in scripts/init.lua .github/workflows/template.yml .github/template-init; do
+            [[ ! -e $path ]] || error "the template-only $path is left"
+          done
+          left="$(grep -rIn --exclude-dir=.git --exclude-dir=.tests -e tsquery -e 'Tree-sitter query' . || true)"
+          [[ -z $left ]] || error "text of the template's plugin is left:"$'\n'"$left"
+          left="$(find . -path ./.git -prune -o -path ./.tests -prune -o -name '*tsquery*' -print)"
+          [[ -z $left ]] || error "paths of the template's plugin are left:"$'\n'"$left"
+          for path in \
+            .github/workflows/ci.yml \
+            .github/workflows/spelling.yml \
+            .github/workflows/canary.yml \
+            .github/workflows/release.yml \
+            .github/workflows/auto-merge.yml \
+            .github/scripts/release.sh \
+            test/run.lua \
+            test/deps.lua \
+            CONTRIBUTING.md \
+            AGENTS.md \
+            CLAUDE.md \
+            .gitignore \
+            .luarc.json \
+            .stylua.toml \
+            .typos.toml; do
+            if [[ -e $TEMPLATE/$path || -e $path ]]; then
+              cmp -s "$TEMPLATE/$path" "$path" || error "the boilerplate file $path changed"
+            fi
+          done
+          for path in \
+            "lua/codestyle/languages/$SAMPLE_ID.lua" \
+            "lua/codestyle/languages/$SAMPLE_ID/formatter.lua" \
+            "lua/codestyle/languages/$SAMPLE_ID/scheme.lua" \
+            "doc/codestyle-$SAMPLE_ID.txt"; do
+            [[ -f $path ]] || error "$path is missing"
+          done
+          grep -qxF "  id = '$SAMPLE_ID'," "lua/codestyle/languages/$SAMPLE_ID.lua" || error "the spec has no id $SAMPLE_ID"
+          grep -qxF "  name = '$SAMPLE_NAME'," "lua/codestyle/languages/$SAMPLE_ID.lua" || error "the spec has no name $SAMPLE_NAME"
+          grep -qxF "# codestyle-$SAMPLE_ID.nvim" README.md || error "README.md is not the plugin's"
+          grep -qF "'$SAMPLE_OWNER/codestyle-$SAMPLE_ID.nvim'" README.md || error "README.md does not install $SAMPLE_OWNER/codestyle-$SAMPLE_ID.nvim"
+          grep -qF "'a1exk-dev/codestyle.nvim'" README.md || error "README.md does not depend on the Core"
+          [[ "$(cat CHANGELOG.md)" == '# Changelog' ]] || error "CHANGELOG.md is not only # Changelog"
+          grep -qxF "Copyright (c) $(date +%Y) $SAMPLE_AUTHOR" LICENSE || error "LICENSE has no line for $SAMPLE_AUTHOR"
+          [[ "$(git rev-parse HEAD)" == "$(git -C "$TEMPLATE" rev-parse HEAD)" ]] || error "init.lua made a commit"
+          exit "$status"
+
+      # The checks of `spelling.yml` and `ci.yml`, on the copy. typos goes
+      # first, before the tests clone their dependencies into `.tests/`.
+      - name: Spell check with typos
+        uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
+        with:
+          files: ${{ env.COPY }}
+          config: ${{ env.COPY }}/.typos.toml
+
+      - name: Tests (Neovim v0.11.7)
+        working-directory: ${{ env.COPY }}
+        run: '"$NVIM_0_11" --headless -l test/run.lua'
+
+      - name: Tests (Neovim stable)
+        working-directory: ${{ env.COPY }}
+        run: '"$NVIM_STABLE" --headless -l test/run.lua'
+
+      - name: Format check with StyLua
+        working-directory: ${{ env.COPY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/stylua"
+          curl -sSL -o "$RUNNER_TEMP/stylua.zip" \
+            "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/stylua-linux-x86_64.zip"
+          unzip -q -o "$RUNNER_TEMP/stylua.zip" -d "$RUNNER_TEMP/stylua"
+          "$RUNNER_TEMP/stylua/stylua" --check .
+
+      - name: Type check with lua-language-server
+        working-directory: ${{ env.COPY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/luals"
+          curl -sSL "https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-linux-x64.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP/luals"
+          "$NVIM_STABLE" --headless -l test/run.lua --deps
+          export VIMRUNTIME="$("$NVIM_STABLE" --clean --headless --cmd 'echo $VIMRUNTIME | qall' 2>&1)"
+          "$RUNNER_TEMP/luals/bin/lua-language-server" --check . --checklevel=Warning --logpath="$RUNNER_TEMP/luals-log"
