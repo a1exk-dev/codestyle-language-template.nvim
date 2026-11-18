@@ -11,7 +11,15 @@ This repo keeps a copy of the `git-commit`, `semver` and `common-changelog` skil
 
 ## Release
 
-- After this plugin's first release on `main`, open a home issue "List `<owner>/<repo>` in awesome-neovim" with `gh issue create -R a1exk-dev/codestyle-home --label ready-for-agent --label enhancement`. In its body, tell the agent to follow the steps of [List the Core in awesome-neovim](https://github.com/a1exk-dev/codestyle-home/issues/68) (the list's rules, one line, the operator's approval of the text before the pull request), to put the line in this language's subsection under "Programming Languages Support", else in "Formatting", and to open the pull request one week or more after the release. In the template repo `codestyle-language-template.nvim`, skip this rule: the template is no Language Plugin.
+This rule is for a Language Plugin. In the template repo, `codestyle-language-template.nvim`, skip it: the template is no Language Plugin.
+
+After this plugin's first release on `main`, get it listed in awesome-neovim:
+
+1. Open a home issue "List `<owner>/<repo>` in awesome-neovim" with `gh issue create -R a1exk-dev/codestyle-home --label ready-for-agent --label enhancement`.
+2. In its body, tell the agent to:
+   - follow the listing steps of [List the Core in awesome-neovim](https://github.com/a1exk-dev/codestyle-home/issues/68): the list's rules, one line, and the operator's approval of the text before the pull request. Skip its Core-only steps, the Core release with the demo GIF and the Core repo's age.
+   - put the line in this language's subsection under "Programming Languages Support" when one exists, else in "Formatting".
+   - open the pull request one week or more after the release.
 
 ## Checks
 
