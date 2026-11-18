@@ -1,0 +1,81 @@
+name: Release
+
+# `Tag and back-merge: Skill` in the Semver policy of codestyle-home
+# (https://github.com/a1exk-dev/codestyle-home/blob/main/docs/agents/semver-policy.md):
+# when a `release/X.Y.Z` or `hotfix/<name>` pull request is merged into `main`,
+# this workflow tags the merge commit and publishes the GitHub release. A new
+# Finish run of the semver Skill then opens the back-merge pull requests under
+# the operator's login, because GitHub starts no checks for a pull request that
+# this workflow's token opens (home ADR-0008). Finish makes the tag only when
+# this workflow has not made it.
+
+permissions: {}
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and GitHub release
+    if: >-
+      github.event.pull_request.merged &&
+      (startsWith(github.event.pull_request.head.ref, 'release/') ||
+      startsWith(github.event.pull_request.head.ref, 'hotfix/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      SHA: ${{ github.event.pull_request.merge_commit_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Find the version
+        id: version
+        run: |
+          version="$(sh .github/scripts/release.sh version "$HEAD_REF")"
+          # A released version never moves: a tag on another commit stops
+          # the run instead of being replaced.
+          if tagged="$(git rev-parse --verify --quiet "refs/tags/v$version^{commit}")" && [ "$tagged" != "$SHA" ]; then
+            echo "::error::tag v$version already exists on $tagged, not on the merge commit $SHA"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the GitHub release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "The release v$VERSION exists already."
+            exit 0
+          fi
+          sh .github/scripts/release.sh notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+          if [ -s "$RUNNER_TEMP/notes.md" ]; then
+            notes="--notes-file=$RUNNER_TEMP/notes.md"
+          else
+            echo "::warning::CHANGELOG.md has no entry for $VERSION; the release notes are generated from the pull requests"
+            notes="--generate-notes"
+          fi
+          # `gh release create` makes the tag on --target when it is missing.
+          gh release create "v$VERSION" --target "$SHA" --title "v$VERSION" "$notes"
+
+      - name: Ask for the back-merges
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "v$VERSION is released. Finish the release with the semver Skill (\"Finish $HEAD_REF\") to open the back-merges." >> "$GITHUB_STEP_SUMMARY"
